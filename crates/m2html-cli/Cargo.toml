@@ -1,0 +1,26 @@
+[package]
+name = "m2html"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme.workspace = true
+description = "Fast, safe Markdown to HTML CLI powered by Rust."
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "m2html"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap = { workspace = true, features = ["derive"] }
+m2html-core.workspace = true
+walkdir.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

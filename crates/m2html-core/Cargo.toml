@@ -1,0 +1,29 @@
+[package]
+name = "m2html-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme.workspace = true
+description = "Fast, safe Markdown to HTML rendering core for m2html."
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+ammonia.workspace = true
+html-escape.workspace = true
+once_cell.workspace = true
+pulldown-cmark.workspace = true
+syntect.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+criterion = "0.7"
+insta = { version = "1", features = ["yaml"] }
+
+[[bench]]
+name = "render"
+harness = false

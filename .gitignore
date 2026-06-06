@@ -1,0 +1,10 @@
+/target/
+/.venv/
+/.mypy_cache/
+/.pytest_cache/
+/*.html
+/site/
+*.so
+*.pyd
+*.dylib
+*.egg-info/
