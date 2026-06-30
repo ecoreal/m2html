@@ -1,3 +1,14 @@
+<!-- ecoreal-repo-header: m2html -->
+<div align="center">
+
+<img src="assets/repo-icon.png" width="160" alt="M2HTML icon">
+
+# M2HTML
+
+Rust-based Markdown to HTML renderer and CLI.
+
+</div>
+
 # m2html
 
 Fast, safe Markdown to HTML rendering powered by Rust.
