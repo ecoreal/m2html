@@ -1,6 +1,22 @@
-use std::{fs, process::Command};
+use std::{fs, path::PathBuf, process::Command};
 
 use tempfile::tempdir;
+
+fn m2html_binary() -> PathBuf {
+    if let Some(path) = option_env!("CARGO_BIN_EXE_m2html") {
+        return PathBuf::from(path);
+    }
+
+    // Cargo does not expose CARGO_BIN_EXE_* consistently for every workspace
+    // test invocation. The integration test binary lives in target/debug/deps,
+    // so its sibling target/debug/m2html is a stable fallback.
+    std::env::current_exe()
+        .expect("current test executable")
+        .parent()
+        .and_then(|path| path.parent())
+        .expect("target debug directory")
+        .join("m2html")
+}
 
 #[test]
 fn renders_fragment_to_stdout() {
@@ -8,7 +24,7 @@ fn renders_fragment_to_stdout() {
     let input = dir.path().join("input.md");
     fs::write(&input, "# Hello\n\n<script>alert(1)</script>").expect("write input");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_m2html"))
+    let output = Command::new(m2html_binary())
         .arg(&input)
         .arg("--fragment")
         .output()
@@ -28,7 +44,7 @@ fn renders_directory_preserving_relative_paths() {
     fs::write(docs.join("guide.md"), "# Guide").expect("write input");
 
     let output_dir = dir.path().join("site");
-    let output = Command::new(env!("CARGO_BIN_EXE_m2html"))
+    let output = Command::new(m2html_binary())
         .arg(dir.path().join("docs"))
         .arg("-o")
         .arg(&output_dir)
