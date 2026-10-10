@@ -58,6 +58,31 @@ fn renders_directory_preserving_relative_paths() {
 }
 
 #[test]
+fn rejects_symlinked_output_directory() {
+    let dir = tempdir().expect("tempdir");
+    let docs = dir.path().join("docs");
+    fs::create_dir_all(&docs).expect("create docs");
+    fs::write(docs.join("guide.md"), "# Guide").expect("write input");
+
+    let external = dir.path().join("external");
+    fs::create_dir(&external).expect("create external");
+    let output_dir = dir.path().join("site");
+    std::os::unix::fs::symlink(&external, &output_dir).expect("create symlink");
+
+    let output = Command::new(m2html_binary())
+        .arg(&docs)
+        .arg("-o")
+        .arg(&output_dir)
+        .output()
+        .expect("run m2html");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(stderr.contains("symlink"), "stderr: {stderr}");
+    assert!(!external.join("guide.html").exists());
+}
+
+#[test]
 fn rejects_directory_output_collisions() {
     let dir = tempdir().expect("tempdir");
     let docs = dir.path().join("docs");

@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
     fs,
+    io::ErrorKind,
     path::{Path, PathBuf},
 };
 
@@ -80,6 +81,7 @@ fn render_file_command(args: &Args) -> Result<()> {
     let output = render_file_to_string(&args.input, args)?;
 
     if let Some(path) = &args.output {
+        reject_symlink_components(path)?;
         ensure_parent(path)?;
         fs::write(path, output).with_context(|| format!("failed to write {}", path.display()))?;
     } else {
@@ -91,6 +93,7 @@ fn render_file_command(args: &Args) -> Result<()> {
 
 fn render_directory(args: &Args) -> Result<()> {
     let output_dir = args.output.clone().unwrap_or_else(|| PathBuf::from("site"));
+    reject_symlink_components(&output_dir)?;
 
     if output_dir.exists() && !output_dir.is_dir() {
         bail!(
@@ -125,6 +128,7 @@ fn render_directory(args: &Args) -> Result<()> {
         }
         let output = render_file_to_string(input_path, args)?;
 
+        reject_symlink_components(&output_path)?;
         ensure_parent(&output_path)?;
         fs::write(&output_path, output)
             .with_context(|| format!("failed to write {}", output_path.display()))?;
@@ -166,6 +170,28 @@ fn inferred_title(path: &Path) -> Option<String> {
     path.file_stem()
         .and_then(|name| name.to_str())
         .map(|name| name.replace(['-', '_'], " "))
+}
+
+fn reject_symlink_components(path: &Path) -> Result<()> {
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        current.push(component.as_os_str());
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                bail!(
+                    "refusing to write through symlink output path: {}",
+                    current.display()
+                );
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to inspect {}", current.display()));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn ensure_parent(path: &Path) -> Result<()> {
