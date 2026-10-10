@@ -2,6 +2,16 @@ use std::{fs, path::PathBuf, process::Command};
 
 use tempfile::tempdir;
 
+#[cfg(unix)]
+fn symlink_directory(original: &std::path::Path, link: &std::path::Path) {
+    std::os::unix::fs::symlink(original, link).expect("create symlink");
+}
+
+#[cfg(windows)]
+fn symlink_directory(original: &std::path::Path, link: &std::path::Path) {
+    std::os::windows::fs::symlink_dir(original, link).expect("create symlink");
+}
+
 fn m2html_binary() -> PathBuf {
     if let Some(path) = option_env!("CARGO_BIN_EXE_m2html") {
         return PathBuf::from(path);
@@ -67,7 +77,7 @@ fn rejects_symlinked_output_directory() {
     let external = dir.path().join("external");
     fs::create_dir(&external).expect("create external");
     let output_dir = dir.path().join("site");
-    std::os::unix::fs::symlink(&external, &output_dir).expect("create symlink");
+    symlink_directory(&external, &output_dir);
 
     let output = Command::new(m2html_binary())
         .arg(&docs)
