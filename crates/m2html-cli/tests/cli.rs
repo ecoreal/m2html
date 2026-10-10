@@ -68,6 +68,35 @@ fn renders_directory_preserving_relative_paths() {
 }
 
 #[test]
+fn rejects_symlinked_single_file_output() {
+    let dir = tempdir().expect("tempdir");
+    let input = dir.path().join("input.md");
+    fs::write(&input, "# Input").expect("write input");
+    let external = dir.path().join("external.html");
+    fs::write(&external, "keep").expect("write external");
+    let output = dir.path().join("output.html");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&external, &output).expect("create symlink");
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_file(&external, &output).expect("create symlink");
+
+    let result = Command::new(m2html_binary())
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .expect("run m2html");
+
+    assert!(!result.status.success());
+    let stderr = String::from_utf8(result.stderr).expect("utf8 stderr");
+    assert!(stderr.contains("symlink"), "stderr: {stderr}");
+    assert_eq!(
+        fs::read_to_string(&external).expect("read external"),
+        "keep"
+    );
+}
+
+#[test]
 fn rejects_case_insensitive_directory_output_collisions() {
     let dir = tempdir().expect("tempdir");
     let docs = dir.path().join("docs");
