@@ -56,3 +56,24 @@ fn renders_directory_preserving_relative_paths() {
     assert!(html.starts_with("<!doctype html>"));
     assert!(html.contains("<h1>Guide</h1>"));
 }
+
+#[test]
+fn rejects_directory_output_collisions() {
+    let dir = tempdir().expect("tempdir");
+    let docs = dir.path().join("docs");
+    fs::create_dir_all(&docs).expect("create docs");
+    fs::write(docs.join("guide.md"), "# Markdown").expect("write md input");
+    fs::write(docs.join("guide.markdown"), "# Markdown alias").expect("write markdown input");
+
+    let output_dir = dir.path().join("site");
+    let output = Command::new(m2html_binary())
+        .arg(&docs)
+        .arg("-o")
+        .arg(&output_dir)
+        .output()
+        .expect("run m2html");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(stderr.contains("same output"), "stderr: {stderr}");
+}

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -99,6 +100,7 @@ fn render_directory(args: &Args) -> Result<()> {
     }
 
     let mut rendered = 0usize;
+    let mut output_paths = HashSet::new();
 
     for entry in WalkDir::new(&args.input) {
         let entry = entry.with_context(|| format!("failed to walk {}", args.input.display()))?;
@@ -115,6 +117,12 @@ fn render_directory(args: &Args) -> Result<()> {
             )
         })?;
         let output_path = output_dir.join(relative).with_extension("html");
+        if !output_paths.insert(output_path.clone()) {
+            bail!(
+                "multiple Markdown files map to the same output: {}",
+                output_path.display()
+            );
+        }
         let output = render_file_to_string(input_path, args)?;
 
         ensure_parent(&output_path)?;
