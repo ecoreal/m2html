@@ -103,7 +103,7 @@ fn render_directory(args: &Args) -> Result<()> {
     }
 
     let mut rendered = 0usize;
-    let mut output_paths = HashSet::new();
+    let mut output_paths: HashSet<String> = HashSet::new();
 
     for entry in WalkDir::new(&args.input) {
         let entry = entry.with_context(|| format!("failed to walk {}", args.input.display()))?;
@@ -120,7 +120,7 @@ fn render_directory(args: &Args) -> Result<()> {
             )
         })?;
         let output_path = output_dir.join(relative).with_extension("html");
-        if !output_paths.insert(output_path.clone()) {
+        if !output_paths.insert(output_collision_key(&output_path)) {
             bail!(
                 "multiple Markdown files map to the same output: {}",
                 output_path.display()
@@ -205,6 +205,13 @@ fn ensure_parent(path: &Path) -> Result<()> {
     Ok(())
 }
 
+fn output_collision_key(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy().to_lowercase())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 fn is_markdown(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -221,6 +228,14 @@ mod tests {
         assert!(is_markdown(Path::new("README.md")));
         assert!(is_markdown(Path::new("guide.markdown")));
         assert!(!is_markdown(Path::new("index.html")));
+    }
+
+    #[test]
+    fn output_collision_key_is_case_insensitive() {
+        assert_eq!(
+            output_collision_key(Path::new("site/Guide.html")),
+            output_collision_key(Path::new("site/guide.html"))
+        );
     }
 
     #[test]
