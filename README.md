@@ -60,7 +60,7 @@ Render a directory into `site/`:
 m2html docs/ -o site/
 ```
 
-Directory export preserves relative paths and refuses to overwrite an output when multiple Markdown extensions map to the same `.html` path.
+Directory export preserves relative paths and refuses to overwrite an output when multiple Markdown extensions map to the same `.html` path. Collision checks are case-insensitive for portability across filesystems, and output paths containing symlinks are rejected.
 
 Emit an embeddable fragment instead of a complete page:
 
