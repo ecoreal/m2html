@@ -1,13 +1,14 @@
 use std::{
     collections::HashSet,
-    fs,
-    io::ErrorKind,
+    fs::{self, File},
+    io::{ErrorKind, Read, Write},
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, ValueEnum};
-use m2html_core::{PageStyle, RenderOptions, render};
+use m2html_core::{MAX_MARKDOWN_BYTES, PageStyle, RenderOptions, render};
+use tempfile::NamedTempFile;
 use walkdir::WalkDir;
 
 #[derive(Debug, Parser)]
@@ -82,8 +83,7 @@ fn render_file_command(args: &Args) -> Result<()> {
 
     if let Some(path) = &args.output {
         reject_symlink_components(path)?;
-        ensure_parent(path)?;
-        fs::write(path, output).with_context(|| format!("failed to write {}", path.display()))?;
+        write_atomic(path, &output)?;
     } else {
         print!("{output}");
     }
@@ -129,9 +129,7 @@ fn render_directory(args: &Args) -> Result<()> {
         let output = render_file_to_string(input_path, args)?;
 
         reject_symlink_components(&output_path)?;
-        ensure_parent(&output_path)?;
-        fs::write(&output_path, output)
-            .with_context(|| format!("failed to write {}", output_path.display()))?;
+        write_atomic(&output_path, &output)?;
         rendered += 1;
     }
 
@@ -143,11 +141,54 @@ fn render_directory(args: &Args) -> Result<()> {
 }
 
 fn render_file_to_string(path: &Path, args: &Args) -> Result<String> {
-    let markdown =
-        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let markdown = read_markdown(path)?;
     let options = render_options(args, Some(path));
 
     render(&markdown, &options).map_err(|err| anyhow!(err))
+}
+
+fn read_markdown(path: &Path) -> Result<String> {
+    let file = File::open(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut bytes = Vec::new();
+    file.take((MAX_MARKDOWN_BYTES as u64) + 1)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+
+    if bytes.len() > MAX_MARKDOWN_BYTES {
+        bail!(
+            "Markdown input {} is too large: maximum is {} bytes",
+            path.display(),
+            MAX_MARKDOWN_BYTES
+        );
+    }
+
+    String::from_utf8(bytes)
+        .map_err(|_| anyhow!("Markdown input {} is not valid UTF-8", path.display()))
+}
+
+fn write_atomic(path: &Path, contents: &str) -> Result<()> {
+    ensure_parent(path)?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut temporary = NamedTempFile::new_in(parent).with_context(|| {
+        format!(
+            "failed to create temporary output beside {}",
+            path.display()
+        )
+    })?;
+    temporary
+        .write_all(contents.as_bytes())
+        .with_context(|| format!("failed to write temporary output for {}", path.display()))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .with_context(|| format!("failed to flush temporary output for {}", path.display()))?;
+    temporary.persist(path).map_err(|error| {
+        anyhow!(error.error).context(format!("failed to atomically replace {}", path.display()))
+    })?;
+    Ok(())
 }
 
 fn render_options(args: &Args, input_path: Option<&Path>) -> RenderOptions {

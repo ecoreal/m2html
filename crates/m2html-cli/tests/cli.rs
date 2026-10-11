@@ -1,5 +1,6 @@
 use std::{fs, path::PathBuf, process::Command};
 
+use m2html_core::MAX_MARKDOWN_BYTES;
 use tempfile::tempdir;
 
 #[cfg(unix)]
@@ -161,4 +162,25 @@ fn rejects_directory_output_collisions() {
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
     assert!(stderr.contains("same output"), "stderr: {stderr}");
+}
+
+#[test]
+fn rejects_oversized_markdown_input_before_writing_output() {
+    let dir = tempdir().expect("tempdir");
+    let input = dir.path().join("large.md");
+    fs::write(&input, vec![b'x'; MAX_MARKDOWN_BYTES + 1]).expect("write input");
+    let output = dir.path().join("output.html");
+    fs::write(&output, "keep").expect("write existing output");
+
+    let result = Command::new(m2html_binary())
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .expect("run m2html");
+
+    assert!(!result.status.success());
+    let stderr = String::from_utf8(result.stderr).expect("utf8 stderr");
+    assert!(stderr.contains("maximum is"), "stderr: {stderr}");
+    assert_eq!(fs::read_to_string(output).expect("read output"), "keep");
 }

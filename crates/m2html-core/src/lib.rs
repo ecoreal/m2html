@@ -16,6 +16,9 @@ static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(SyntaxSet::load_defaults_newlines
 static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);
 const HIGHLIGHT_CLASS_STYLE: ClassStyle = ClassStyle::SpacedPrefixed { prefix: "syntect-" };
 
+/// Maximum Markdown input accepted by the renderer, in bytes.
+pub const MAX_MARKDOWN_BYTES: usize = 16 * 1024 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderOptions {
     pub page: bool,
@@ -67,6 +70,8 @@ impl fmt::Display for PageStyle {
 
 #[derive(Debug, Error)]
 pub enum RenderError {
+    #[error("Markdown input is too large: {actual} bytes exceeds the maximum of {max} bytes")]
+    InputTooLarge { actual: usize, max: usize },
     #[error("syntax highlighting failed: {0}")]
     Highlight(#[from] syntect::Error),
 }
@@ -82,6 +87,8 @@ pub fn render(markdown: &str, options: &RenderOptions) -> Result<String, RenderE
 }
 
 pub fn render_fragment(markdown: &str, options: &RenderOptions) -> Result<String, RenderError> {
+    ensure_input_size(markdown)?;
+
     let mut html = if options.highlight {
         render_with_highlighting(markdown)?
     } else {
@@ -93,6 +100,17 @@ pub fn render_fragment(markdown: &str, options: &RenderOptions) -> Result<String
     }
 
     Ok(html)
+}
+
+fn ensure_input_size(markdown: &str) -> Result<(), RenderError> {
+    if markdown.len() > MAX_MARKDOWN_BYTES {
+        return Err(RenderError::InputTooLarge {
+            actual: markdown.len(),
+            max: MAX_MARKDOWN_BYTES,
+        });
+    }
+
+    Ok(())
 }
 
 fn markdown_options() -> Options {
@@ -409,6 +427,20 @@ fn github_css() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_markdown_above_the_input_limit() {
+        let markdown = "x".repeat(MAX_MARKDOWN_BYTES + 1);
+        let error = render(&markdown, &RenderOptions::default()).unwrap_err();
+
+        match error {
+            RenderError::InputTooLarge { actual, max } => {
+                assert_eq!(actual, MAX_MARKDOWN_BYTES + 1);
+                assert_eq!(max, MAX_MARKDOWN_BYTES);
+            }
+            other => panic!("unexpected render error: {other:?}"),
+        }
+    }
 
     #[test]
     fn renders_safe_fragment_by_default() {

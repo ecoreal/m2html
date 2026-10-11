@@ -20,3 +20,4 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 m2html-core.workspace = true
 pyo3 = { workspace = true, features = ["extension-module"] }
+tempfile.workspace = true
