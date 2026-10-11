@@ -17,7 +17,18 @@ publish = false
 name = "_native"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# Enabled by maturin (see [tool.maturin].features) for the Python extension
+# build. Keeping it opt-in lets `cargo test` link against libpython so the
+# Rust-side binding tests can run.
+extension-module = ["pyo3/extension-module"]
+
 [dependencies]
 m2html-core.workspace = true
-pyo3 = { workspace = true, features = ["extension-module"] }
+pyo3.workspace = true
 tempfile.workspace = true
+
+[dev-dependencies]
+# Initialize an embedded interpreter so the Rust-side binding tests can call
+# Python APIs without the extension-module feature.
+pyo3 = { workspace = true, features = ["auto-initialize"] }
