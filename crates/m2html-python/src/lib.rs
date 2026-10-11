@@ -2,6 +2,7 @@ use std::{
     fs::{self, File},
     io::{Read, Write},
     path::{Path, PathBuf},
+    string::FromUtf8Error,
 };
 
 use m2html_core::{MAX_MARKDOWN_BYTES, PageStyle, RenderError, RenderOptions};
@@ -29,7 +30,6 @@ fn render(
 #[pyfunction]
 #[pyo3(signature = (input_path, output_path = None, *, page = false, unsafe_html = false, highlight = false, style = "none", title = None))]
 fn render_file(
-    py: Python<'_>,
     input_path: PathBuf,
     output_path: Option<PathBuf>,
     page: bool,
@@ -38,7 +38,7 @@ fn render_file(
     style: &str,
     title: Option<String>,
 ) -> PyResult<String> {
-    let markdown = read_markdown(py, &input_path)?;
+    let markdown = read_markdown(&input_path)?;
     let options = options_from_python(page, unsafe_html, highlight, style, title)?;
     let html = m2html_core::render(&markdown, &options).map_err(render_error_to_python)?;
 
@@ -49,7 +49,7 @@ fn render_file(
     Ok(html)
 }
 
-fn read_markdown(py: Python<'_>, path: &Path) -> PyResult<String> {
+fn read_markdown(path: &Path) -> PyResult<String> {
     let file = File::open(path).map_err(|error| io_error("read", path, error))?;
     let mut bytes = Vec::new();
     file.take((MAX_MARKDOWN_BYTES as u64) + 1)
@@ -64,12 +64,18 @@ fn read_markdown(py: Python<'_>, path: &Path) -> PyResult<String> {
         )));
     }
 
-    match String::from_utf8(bytes) {
-        Ok(markdown) => Ok(markdown),
-        Err(error) => {
-            Err(PyUnicodeDecodeError::new_utf8(py, error.as_bytes(), error.utf8_error())?.into())
+    String::from_utf8(bytes).map_err(invalid_utf8_error)
+}
+
+fn invalid_utf8_error(error: FromUtf8Error) -> PyErr {
+    // Rebuild the GIL-bound decode error without threading a Python token
+    // through every read helper.
+    Python::attach(|py| {
+        match PyUnicodeDecodeError::new_utf8(py, error.as_bytes(), error.utf8_error()) {
+            Ok(decode_error) => decode_error.into(),
+            Err(err) => err,
         }
-    }
+    })
 }
 
 fn write_atomic(path: &Path, contents: &str) -> PyResult<()> {
@@ -146,7 +152,7 @@ mod tests {
     fn maps_missing_input_to_os_error() {
         Python::attach(|py| {
             let path = PathBuf::from("definitely-missing-m2html-input.md");
-            let error = read_markdown(py, &path).unwrap_err();
+            let error = read_markdown(&path).unwrap_err();
             assert!(error.is_instance_of::<PyOSError>(py));
         });
     }
@@ -158,7 +164,7 @@ mod tests {
         fs::write(&path, [0xff, 0xfe]).unwrap();
 
         Python::attach(|py| {
-            let error = read_markdown(py, &path).unwrap_err();
+            let error = read_markdown(&path).unwrap_err();
             assert!(error.is_instance_of::<PyUnicodeDecodeError>(py));
         });
     }
