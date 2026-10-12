@@ -8,7 +8,6 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, ValueEnum};
 use m2html_core::{MAX_MARKDOWN_BYTES, PageStyle, RenderOptions, render};
-use tempfile::NamedTempFile;
 use walkdir::WalkDir;
 
 #[derive(Debug, Parser)]
@@ -172,7 +171,16 @@ fn write_atomic(path: &Path, contents: &str) -> Result<()> {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    let mut temporary = NamedTempFile::new_in(parent).with_context(|| {
+    let mut builder = tempfile::Builder::new();
+    // `NamedTempFile` defaults to owner-only permissions (0o600 on Unix), which
+    // would leak onto every rendered file once it is persisted. Ask for the
+    // mode a regular file would get (0o666 masked by the umask) instead.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o666));
+    }
+    let mut temporary = builder.tempfile_in(parent).with_context(|| {
         format!(
             "failed to create temporary output beside {}",
             path.display()

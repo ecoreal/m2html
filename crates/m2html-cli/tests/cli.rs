@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf, process::Command};
 
-use m2html_core::MAX_MARKDOWN_BYTES;
+use m2html_core::{MAX_MARKDOWN_BYTES, MAX_NESTING_DEPTH};
 use tempfile::tempdir;
 
 #[cfg(unix)]
@@ -183,4 +183,71 @@ fn rejects_oversized_markdown_input_before_writing_output() {
     let stderr = String::from_utf8(result.stderr).expect("utf8 stderr");
     assert!(stderr.contains("maximum is"), "stderr: {stderr}");
     assert_eq!(fs::read_to_string(output).expect("read output"), "keep");
+}
+
+#[test]
+fn rejects_deeply_nested_markdown_before_writing_output() {
+    let dir = tempdir().expect("tempdir");
+    let input = dir.path().join("deep.md");
+    fs::write(&input, format!("{}x\n", "> ".repeat(MAX_NESTING_DEPTH + 1))).expect("write input");
+    let output = dir.path().join("output.html");
+    fs::write(&output, "keep").expect("write existing output");
+
+    let result = Command::new(m2html_binary())
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .expect("run m2html");
+
+    assert!(!result.status.success());
+    let stderr = String::from_utf8(result.stderr).expect("utf8 stderr");
+    assert!(stderr.contains("nests deeper"), "stderr: {stderr}");
+    assert_eq!(fs::read_to_string(output).expect("read output"), "keep");
+}
+
+#[cfg(unix)]
+#[test]
+fn writes_output_files_with_default_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempdir().expect("tempdir");
+    let input = dir.path().join("input.md");
+    fs::write(&input, "# Permissions").expect("write input");
+    let output = dir.path().join("output.html");
+
+    let result = Command::new(m2html_binary())
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .expect("run m2html");
+
+    assert!(result.status.success());
+    let mode = fs::metadata(&output)
+        .expect("stat output")
+        .permissions()
+        .mode()
+        & 0o777;
+    // `NamedTempFile` creates owner-only files; write_atomic must publish the
+    // output with the mode a regular file would get (0o666 masked by the umask).
+    assert_ne!(mode, 0o600, "output kept the temporary file permissions");
+    assert_eq!(mode & 0o044, 0o044, "output is not group/other readable");
+}
+
+#[test]
+fn renders_nested_markdown_at_the_depth_limit() {
+    let dir = tempdir().expect("tempdir");
+    let input = dir.path().join("input.md");
+    fs::write(&input, format!("{}x\n", "> ".repeat(16))).expect("write input");
+
+    let result = Command::new(m2html_binary())
+        .arg(&input)
+        .arg("--fragment")
+        .output()
+        .expect("run m2html");
+
+    assert!(result.status.success());
+    let stdout = String::from_utf8(result.stdout).expect("utf8 stdout");
+    assert_eq!(stdout.matches("<blockquote>").count(), 16);
 }
