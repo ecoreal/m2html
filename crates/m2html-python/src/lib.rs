@@ -10,7 +10,6 @@ use pyo3::{
     exceptions::{PyOSError, PyUnicodeDecodeError, PyValueError},
     prelude::*,
 };
-use tempfile::NamedTempFile;
 
 #[pyfunction]
 #[pyo3(signature = (markdown, *, page = false, unsafe_html = false, highlight = false, style = "none", title = None))]
@@ -90,7 +89,17 @@ fn write_atomic(path: &Path, contents: &str) -> PyResult<()> {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    let mut temporary = NamedTempFile::new_in(parent)
+    let mut builder = tempfile::Builder::new();
+    // `NamedTempFile` defaults to owner-only permissions (0o600 on Unix), which
+    // would leak onto every rendered file once it is persisted. Ask for the
+    // mode a regular file would get (0o666 masked by the umask) instead.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o666));
+    }
+    let mut temporary = builder
+        .tempfile_in(parent)
         .map_err(|error| io_error("create temporary output", parent, error))?;
     temporary
         .write_all(contents.as_bytes())
@@ -167,6 +176,64 @@ mod tests {
             let error = read_markdown(&path).unwrap_err();
             assert!(error.is_instance_of::<PyUnicodeDecodeError>(py));
         });
+    }
+
+    #[test]
+    fn rejects_deeply_nested_markdown() {
+        let markdown = format!("{}x\n", "> ".repeat(m2html_core::MAX_NESTING_DEPTH + 1));
+
+        Python::attach(|py| {
+            let error = render(&markdown, false, false, false, "none", None).unwrap_err();
+            assert!(error.is_instance_of::<PyValueError>(py));
+            assert!(error.to_string().contains("nests deeper"));
+        });
+    }
+
+    #[test]
+    fn maps_deeply_nested_files_to_value_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("deep.md");
+        fs::write(
+            &input,
+            format!("{}x\n", "> ".repeat(m2html_core::MAX_NESTING_DEPTH + 1)),
+        )
+        .unwrap();
+
+        Python::attach(|py| {
+            let error =
+                render_file(input.clone(), None, false, false, false, "none", None).unwrap_err();
+            assert!(error.is_instance_of::<PyValueError>(py));
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn writes_output_files_with_default_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("input.md");
+        let output = directory.path().join("output.html");
+        fs::write(&input, "# Permissions").unwrap();
+
+        Python::attach(|_py| {
+            render_file(
+                input,
+                Some(output.clone()),
+                false,
+                false,
+                false,
+                "none",
+                None,
+            )
+            .unwrap();
+        });
+
+        let mode = fs::metadata(&output).unwrap().permissions().mode() & 0o777;
+        // `NamedTempFile` creates owner-only files; write_atomic must publish
+        // the output with the mode a regular file would get.
+        assert_ne!(mode, 0o600, "output kept the temporary file permissions");
+        assert_eq!(mode & 0o044, 0o044, "output is not group/other readable");
     }
 }
 
