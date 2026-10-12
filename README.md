@@ -111,6 +111,12 @@ Python defaults are intentionally conservative:
 `m2html` sanitizes rendered HTML by default. This protects common cases where
 Markdown output is inserted into a website or served to other users.
 
+Untrusted input is also bounded: the Markdown is capped at 16 MiB, and the
+rendered HTML is rejected when it exceeds 64 MiB or nests deeper than 512
+elements. Deeply nested or rapidly expanding input can otherwise make
+sanitizing very slow, so both limits apply to `--unsafe-html` output as well
+and sit well above anything hand-written Markdown reaches.
+
 Use `--unsafe-html` or `unsafe_html=True` only for trusted Markdown. That mode
 preserves raw HTML from the input and can expose XSS vulnerabilities if the
 output is served to browsers.
