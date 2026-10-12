@@ -17,7 +17,31 @@ static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);
 const HIGHLIGHT_CLASS_STYLE: ClassStyle = ClassStyle::SpacedPrefixed { prefix: "syntect-" };
 
 /// Maximum Markdown input accepted by the renderer, in bytes.
+///
+/// The emitted HTML can be larger than the Markdown it came from, so the
+/// derived [`MAX_HTML_BYTES`] and [`MAX_NESTING_DEPTH`] limits are checked
+/// against the rendered HTML as well.
 pub const MAX_MARKDOWN_BYTES: usize = 16 * 1024 * 1024;
+
+/// Maximum HTML nesting depth accepted by the renderer.
+///
+/// Without a depth limit a single 8 MiB line of blank-quote markers (`> `)
+/// expands to 4 million nested `<blockquote>` elements, which exhausts memory
+/// or takes minutes to process in `html5ever`'s tree builder. Capping the depth
+/// keeps the renderer bounded on untrusted input while staying far above
+/// anything real Markdown reaches. The limit applies to both the sanitized
+/// default path and the `--unsafe-html` path, so downstream consumers can rely
+/// on bounded nesting either way.
+pub const MAX_NESTING_DEPTH: usize = 512;
+
+/// Maximum size of the rendered HTML, in bytes.
+///
+/// Markdown expands as it is rendered (escaping, generated markup), and with
+/// syntax highlighting a small fenced block becomes a large span tree. Bounding
+/// the output keeps expensive downstream work — most notably the HTML
+/// sanitizer, whose cost grows with the size of its input — proportional to
+/// [`MAX_MARKDOWN_BYTES`] even when the expansion factor is at its worst.
+pub const MAX_HTML_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderOptions {
@@ -72,6 +96,10 @@ impl fmt::Display for PageStyle {
 pub enum RenderError {
     #[error("Markdown input is too large: {actual} bytes exceeds the maximum of {max} bytes")]
     InputTooLarge { actual: usize, max: usize },
+    #[error("rendered HTML is too large: {actual} bytes exceeds the maximum of {max} bytes")]
+    OutputTooLarge { actual: usize, max: usize },
+    #[error("Markdown content nests deeper than the maximum depth of {max}")]
+    TooDeeplyNested { max: usize },
     #[error("syntax highlighting failed: {0}")]
     Highlight(#[from] syntect::Error),
 }
@@ -89,10 +117,25 @@ pub fn render(markdown: &str, options: &RenderOptions) -> Result<String, RenderE
 pub fn render_fragment(markdown: &str, options: &RenderOptions) -> Result<String, RenderError> {
     ensure_input_size(markdown)?;
 
+    // Markdown rendering is bounded by the input size, but the emitted HTML can
+    // grow several times larger than the Markdown it came from (`> > > a`
+    // becomes nested `<blockquote><p>` pairs, a highlighted fence becomes a
+    // span tree). The sanitizer's cost grows with the size and nesting depth of
+    // its input, so both are checked against the rendered HTML before any
+    // expensive downstream step runs.
+    let limits_html = render_without_highlighting(markdown);
+    if limits_html.len() > MAX_HTML_BYTES {
+        return Err(RenderError::OutputTooLarge {
+            actual: limits_html.len(),
+            max: MAX_HTML_BYTES,
+        });
+    }
+    ensure_nesting_depth(&limits_html)?;
+
     let mut html = if options.highlight {
         render_with_highlighting(markdown)?
     } else {
-        render_without_highlighting(markdown)
+        limits_html
     };
 
     if !options.unsafe_html {
@@ -108,6 +151,36 @@ fn ensure_input_size(markdown: &str) -> Result<(), RenderError> {
             actual: markdown.len(),
             max: MAX_MARKDOWN_BYTES,
         });
+    }
+
+    Ok(())
+}
+
+fn ensure_nesting_depth(html: &str) -> Result<(), RenderError> {
+    let mut depth: usize = 0;
+    let mut rest = html;
+
+    while let Some(index) = rest.find('<') {
+        rest = &rest[index + 1..];
+
+        let Some(end) = rest.find('>') else {
+            // Not a tag; scan the remaining text for the next `<`.
+            continue;
+        };
+        let tag = &rest[..end];
+
+        if tag.starts_with('/') {
+            depth = depth.saturating_sub(1);
+        } else if !tag.starts_with(['!', '?']) && !tag.ends_with('/') {
+            depth += 1;
+            if depth > MAX_NESTING_DEPTH {
+                return Err(RenderError::TooDeeplyNested {
+                    max: MAX_NESTING_DEPTH,
+                });
+            }
+        }
+
+        rest = &rest[end + 1..];
     }
 
     Ok(())
@@ -440,6 +513,87 @@ mod tests {
             }
             other => panic!("unexpected render error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn rejects_deeply_nested_block_quotes() {
+        let markdown = format!("{}x\n", "> ".repeat(MAX_NESTING_DEPTH + 1));
+
+        // Unbounded nesting reaches html5ever's superlinear tree builder, so
+        // this input must be rejected before rendering and sanitizing.
+        let error = render(&markdown, &RenderOptions::default()).unwrap_err();
+
+        match error {
+            RenderError::TooDeeplyNested { max } => assert_eq!(max, MAX_NESTING_DEPTH),
+            other => panic!("unexpected render error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_fragments_whose_sanitized_output_expands_past_the_limit() {
+        // A blank quoted line ends the block quote, so each unit renders one
+        // `<blockquote>` plus one `<p>` per level (~10x). The rendered fragment
+        // stays shallow but grows past the output limit, which must reject it
+        // before the sanitizer sees the fragment.
+        let unit = format!("{}a\n>\n", "> ".repeat(10));
+        let markdown = unit.repeat(MAX_MARKDOWN_BYTES / 2 / unit.len());
+
+        let error = render(&markdown, &RenderOptions::default()).unwrap_err();
+
+        assert!(
+            matches!(error, RenderError::OutputTooLarge { .. }),
+            "unexpected render error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn counts_only_start_tags_toward_the_nesting_depth() {
+        // Self-closing and void tags must not increase the depth, and closing
+        // tags must not underflow.
+        let html = "</div>".repeat(MAX_NESTING_DEPTH + 1);
+        assert!(ensure_nesting_depth(&html).is_ok());
+
+        let html = format!("{}<br/>x", "<div>".repeat(MAX_NESTING_DEPTH));
+        assert!(ensure_nesting_depth(&html).is_ok());
+
+        let html = format!("{}<img src=\"x\">", "<div>".repeat(MAX_NESTING_DEPTH));
+        assert!(ensure_nesting_depth(&html).is_err());
+    }
+
+    #[test]
+    fn ignores_unterminated_angle_brackets_when_counting_depth() {
+        // A literal `<` in text must not swallow the rest of the document.
+        let html = format!("{}a < b", "<div>".repeat(MAX_NESTING_DEPTH));
+        assert!(ensure_nesting_depth(&html).is_ok());
+
+        let html = format!("{}<div>", "<div>".repeat(MAX_NESTING_DEPTH));
+        assert!(ensure_nesting_depth(&html).is_err());
+    }
+
+    #[test]
+    fn rejects_deeply_nested_literal_html() {
+        let markdown = format!(
+            "{}x{}\n",
+            "<div>".repeat(MAX_NESTING_DEPTH + 1),
+            "</div>".repeat(MAX_NESTING_DEPTH + 1)
+        );
+
+        let error = render(&markdown, &RenderOptions::default()).unwrap_err();
+
+        assert!(matches!(error, RenderError::TooDeeplyNested { .. }));
+    }
+
+    #[test]
+    fn accepts_nesting_at_the_depth_limit() {
+        // The limit applies to the rendered HTML, where each nesting level also
+        // opens a paragraph, so the deepest accepted Markdown block nesting is
+        // one level below `MAX_NESTING_DEPTH`.
+        let quotes = MAX_NESTING_DEPTH - 1;
+        let markdown = format!("{}x\n", "> ".repeat(quotes));
+
+        let html = render(&markdown, &RenderOptions::default()).unwrap();
+
+        assert_eq!(html.matches("<blockquote>").count(), quotes);
     }
 
     #[test]
