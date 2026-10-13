@@ -3,15 +3,13 @@
 
 <img src="assets/repo-icon.png" width="160" alt="M2HTML icon">
 
-# M2HTML
-
-Rust-based Markdown to HTML renderer and CLI.
-
-</div>
-
 # m2html
 
-Fast, safe Markdown to HTML rendering powered by Rust.
+**Fast, safe Markdown to HTML rendering powered by Rust.**
+
+A CLI for batch conversion and Python bindings for application code.
+
+</div>
 
 `m2html` is a developer-focused Markdown exporter with a Rust core, a CLI for
 batch conversion, and Python bindings for application code. The v1 goal is a
