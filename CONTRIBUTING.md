@@ -26,4 +26,5 @@ python -c "import m2html; print(m2html.render('# ok'))"
 
 The [pull request template](.github/PULL_REQUEST_TEMPLATE.md) lists the full
 checklist; sanitizer changes additionally go through
-[SECURITY.md](SECURITY.md) for private disclosure rules.
+[SECURITY.md](SECURITY.md) for private disclosure rules. Release mechanics
+live in [docs/releasing.md](docs/releasing.md).
