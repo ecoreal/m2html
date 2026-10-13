@@ -1,0 +1,54 @@
+name: Sanitizer bypass or XSS
+description: Report an HTML sanitization bypass, XSS vector, or unsafe default.
+title: "security: "
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please **do not** open this template for undisclosed vulnerabilities.
+        Report privately via the Security tab ("Report a vulnerability") or the
+        process in [SECURITY.md](../blob/main/SECURITY.md). Use this template
+        only after disclosure is coordinated, or for **already-public**
+        sanitizer bypasses.
+  - type: textarea
+    id: payload
+    attributes:
+      label: Minimal markdown input
+      description: The smallest Markdown that reproduces the bypass.
+      placeholder: |
+        <img src=x onerror=alert(1)>
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed output
+      description: The rendered HTML that still carries the unsafe construct.
+      render: html
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What the sanitized output should be.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: m2html version or commit.
+      placeholder: "0.2.0 / ca966ed"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Render mode
+      options:
+        - Default (sanitized)
+        - --unsafe-html (raw HTML preserved)
+    validations:
+      required: true

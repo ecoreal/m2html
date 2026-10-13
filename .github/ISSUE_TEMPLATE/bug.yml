@@ -1,0 +1,43 @@
+name: Bug report
+description: Report behavior that differs from the documentation.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: input
+    attributes:
+      label: Input
+      description: The Markdown (or CLI invocation) that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Quote the README section or docs that promise the expected result, when possible.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: m2html version or commit.
+      placeholder: "0.2.0 / ca966ed"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - CLI
+        - Library (Rust)
+        - Python binding
+    validations:
+      required: true
