@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added `README.zh.md`, a full Chinese translation cross-linked with the
+  English README; a CLI integration test pins section parity and the
+  bidirectional links.
+
 - Reject rendered HTML above 64 MiB or nesting deeper than 512 elements before
   sanitizing; both limits apply to `--unsafe-html` output as well.
 - Write CLI and Python output files with regular file permissions instead of the

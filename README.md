@@ -7,6 +7,8 @@
 
 **Fast, safe Markdown to HTML rendering powered by Rust.**
 
+English · [中文](README.zh.md)
+
 A CLI for batch conversion and Python bindings for application code.
 
 </div>

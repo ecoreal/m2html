@@ -251,3 +251,26 @@ fn renders_nested_markdown_at_the_depth_limit() {
     let stdout = String::from_utf8(result.stdout).expect("utf8 stdout");
     assert_eq!(stdout.matches("<blockquote>").count(), 16);
 }
+
+#[test]
+fn readmes_cross_link_and_keep_section_parity() {
+    // The repo ships English and Chinese READMEs; they must stay
+    // cross-linked and structurally aligned, and the Chinese file must be
+    // reachable from the repository root (it is listed in the header).
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let en = fs::read_to_string(root.join("README.md")).expect("read README.md");
+    let zh = fs::read_to_string(root.join("README.zh.md")).expect("read README.zh.md");
+
+    assert!(
+        en.contains("[中文](README.zh.md)"),
+        "English README lacks the Chinese link"
+    );
+    assert!(
+        zh.contains("[English](README.md)"),
+        "Chinese README lacks the English link"
+    );
+
+    let en_sections = en.lines().filter(|line| line.starts_with("## ")).count();
+    let zh_sections = zh.lines().filter(|line| line.starts_with("## ")).count();
+    assert_eq!(en_sections, zh_sections, "README section counts diverged");
+}
